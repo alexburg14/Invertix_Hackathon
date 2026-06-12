@@ -120,7 +120,7 @@ export default function App() {
           <span>data-center siting</span>
         </div>
 
-        <button className="back-btn" onClick={() => setView("landing")}>
+        <button className="back-btn" onClick={() => { setLeaving(false); setView("landing"); }}>
           &larr; Edit preferences
         </button>
 

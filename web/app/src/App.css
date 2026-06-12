@@ -20,27 +20,6 @@
   animation: fadeOutShrink 0.35s ease both;
 }
 
-@media (max-width: 860px) {
-  .app {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 50vh;
-    height: 100vh;
-    width: 100vw;
-  }
-
-  .results-sidebar {
-    width: 100%;
-    min-width: 0;
-    max-height: 50vh;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .map-wrap {
-    height: 50vh;
-  }
-}
-
 .sidebar {
   background: var(--panel);
   border-right: 1px solid var(--border);
@@ -513,4 +492,25 @@ input[type="range"]::-moz-range-thumb {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+@media (max-width: 860px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 50vh 50vh;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .results-sidebar {
+    width: 100%;
+    min-width: 0;
+    height: 50vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .map-wrap {
+    height: 50vh;
+  }
 }
