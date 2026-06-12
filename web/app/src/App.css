@@ -3,6 +3,42 @@
   grid-template-columns: 340px 1fr;
   height: 100vh;
   width: 100vw;
+  animation: fadeSlideIn 0.5s ease both;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeOutShrink {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.97); }
+}
+
+.landing.leaving {
+  animation: fadeOutShrink 0.35s ease both;
+}
+
+@media (max-width: 860px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 50vh;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .results-sidebar {
+    width: 100%;
+    min-width: 0;
+    max-height: 50vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .map-wrap {
+    height: 50vh;
+  }
 }
 
 .sidebar {

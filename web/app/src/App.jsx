@@ -49,6 +49,7 @@ export default function App() {
   });
   const [selected, setSelected] = useState(null);
   const [country, setCountry] = useState("all");
+  const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
     fetch("/sites.geojson")
@@ -101,7 +102,11 @@ export default function App() {
         weights={weights}
         setWeight={setWeight}
         loading={!sites}
-        onSubmit={() => setView("results")}
+        leaving={leaving}
+        onSubmit={() => {
+          setLeaving(true);
+          setTimeout(() => setView("results"), 320);
+        }}
       />
     );
   }
@@ -197,9 +202,9 @@ export default function App() {
   );
 }
 
-function Landing({ mw, setMw, weights, setWeight, loading, onSubmit }) {
+function Landing({ mw, setMw, weights, setWeight, loading, leaving, onSubmit }) {
   return (
-    <div className="landing">
+    <div className={"landing" + (leaving ? " leaving" : "")}>
       <div className="landing-card">
         <div className="brand">
           <Logo />
