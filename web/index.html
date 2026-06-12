@@ -2,41 +2,45 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>EnerSite — Data-Center Siting</title>
+<title>EnerSite Subsea — Underwater Data-Center Siting</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  :root { --bg:#16181d; --panel:#1f232b; --text:#e8e6e3; --muted:#9a958e; --accent:#ff7a33; }
+  :root { --bg:#0e141d; --panel:#16202e; --text:#e8e6e3; --muted:#8fa0b5; --accent:#33c6ff; }
   * { box-sizing:border-box; }
   body { margin:0; font:14px/1.45 -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
   #sidebar { width:340px; min-width:340px; overflow-y:auto; background:var(--panel); padding:16px; display:flex; flex-direction:column; gap:14px; }
-  #map { flex:1; background:#101216; }
+  #map { flex:1; background:#0a0f16; }
   h1 { font-size:18px; margin:0; } h1 span { color:var(--accent); }
   .sub { color:var(--muted); font-size:12px; margin-top:2px; }
   label { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:2px; }
   input[type=range] { width:100%; accent-color:var(--accent); }
-  .mw input { width:100%; padding:7px 10px; font-size:15px; border-radius:6px; border:1px solid #3a3f4a; background:var(--bg); color:var(--text); }
+  .mw input { width:100%; padding:7px 10px; font-size:15px; border-radius:6px; border:1px solid #2e3d52; background:var(--bg); color:var(--text); }
   .stat { font-size:12px; color:var(--muted); }
   .stat b { color:var(--text); }
   ol { margin:0; padding:0; list-style:none; }
   ol li { padding:8px 10px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; gap:6px; }
-  ol li:hover, ol li.active { background:#2a2f3a; }
+  ol li:hover, ol li.active { background:#22324a; }
   ol li .rank { color:var(--accent); font-weight:600; min-width:22px; }
   ol li .score { color:var(--muted); }
-  #detail { background:var(--bg); border:1px solid #3a3f4a; border-radius:8px; padding:12px; font-size:13px; display:none; }
+  #detail { background:var(--bg); border:1px solid #2e3d52; border-radius:8px; padding:12px; font-size:13px; display:none; }
   #detail h3 { margin:0 0 6px; font-size:14px; }
   #detail table { width:100%; border-collapse:collapse; }
   #detail td { padding:2px 0; } #detail td:last-child { text-align:right; }
   #detail .verdict { margin-top:8px; color:var(--muted); font-style:italic; }
-  .bar { height:4px; border-radius:2px; background:#3a3f4a; margin-top:1px; }
+  .bar { height:4px; border-radius:2px; background:#2e3d52; margin-top:1px; }
   .bar i { display:block; height:100%; border-radius:2px; background:var(--accent); }
+  .impact { margin-top:10px; padding-top:8px; border-top:1px solid #2e3d52; }
+  .impact div { display:flex; justify-content:space-between; }
+  .impact b { color:var(--accent); }
+  .save { color:#3ddc84 !important; }
 </style>
 </head>
 <body>
 <div id="sidebar">
   <div>
-    <h1>Ener<span>Site</span></h1>
-    <div class="sub">Where to build a data center, and how to power it</div>
+    <h1>EnerSite <span>Subsea</span></h1>
+    <div class="sub">Where to sink a data center, and how to power it</div>
   </div>
 
   <div class="mw">
@@ -54,23 +58,27 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// Of a bus's total connected line rating, assume at most this share is
-// realistically available to a new load (rest carries existing flows).
+// Subsea pods get passive seawater cooling: Microsoft Natick measured PUE 1.07
+// (vs ~1.2 for a good land build). Power lands at the nearest onshore grid bus;
+// of that bus's connected line rating, assume at most this share is available.
 const AVAILABLE_SHARE = 0.2;
-const PUE = 1.2; // IEA-typical for new builds: grid draw = IT load * PUE
+const PUE = 1.07;
+const PUE_LAND = 1.2;
 
 const WEIGHTS = [
-  { key: "cost",    label: "Cheap power",        w: 0.30, s: p => p.s_price_eur_mwh },
-  { key: "carbon",  label: "Clean power",        w: 0.30, s: p => (p.s_gco2_kwh + p.s_clean_share_pct) / 2 },
-  { key: "connect", label: "Connectivity",       w: 0.20, s: p => p.s_dist_dc_km },
-  { key: "ppa",     label: "PPA potential",      w: 0.20, s: p => p.s_ppa_mw_50km },
+  { key: "cool",    label: "Cooling (cold water)", w: 0.20, s: p => p.s_sst_max_c },
+  { key: "cost",    label: "Cheap power",          w: 0.20, s: p => p.s_price_eur_mwh },
+  { key: "carbon",  label: "Clean power",          w: 0.15, s: p => (p.s_gco2_kwh + p.s_clean_share_pct) / 2 },
+  { key: "fiber",   label: "Fiber (subsea cable)", w: 0.15, s: p => p.s_dist_cable_km },
+  { key: "grid",    label: "Grid proximity",       w: 0.10, s: p => p.s_dist_grid_km },
+  { key: "wind",    label: "Offshore wind PPA",    w: 0.20, s: p => p.s_ppa_mw_50km },
 ];
 
-const map = L.map("map", { preferCanvas: true }).setView([54, 10], 5);
+const map = L.map("map", { preferCanvas: true }).setView([56, 5], 6);
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  { attribution: "&copy; OSM &copy; CARTO", maxZoom: 18 }).addTo(map);
+  { attribution: "&copy; OSM &copy; CARTO &copy; TeleGeography", maxZoom: 18 }).addTo(map);
 
-let sites = [], markers = new Map(), activeId = null;
+let sites = [], activeId = null;
 
 const $ = id => document.getElementById(id);
 const color = s => s > .8 ? "#3ddc84" : s > .6 ? "#b8d433" : s > .4 ? "#ffb020" : s > .2 ? "#ff7a33" : "#e0455a";
@@ -82,12 +90,17 @@ $("weights").innerHTML = WEIGHTS.map(w => `
 WEIGHTS.forEach(w => $("w_" + w.key).oninput = render);
 $("mw").oninput = render;
 
+// submarine fiber cables as a faint overlay (TeleGeography, Europe-cropped)
+fetch("cables.json").then(r => r.json()).then(g =>
+  L.geoJSON(g, { style: f => ({ color: f.properties.color || "#888", weight: 1, opacity: .45 }) })
+    .addTo(map));
+
 fetch("sites.geojson").then(r => r.json()).then(g => {
-  sites = g.features.map(f => ({
-    p: f.properties, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
+  sites = g.features.map((f, i) => ({
+    id: i, p: f.properties, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
   }));
   sites.forEach(s => {
-    s.marker = L.circleMarker([s.lat, s.lon], { radius: 4, weight: 0, fillOpacity: .8 })
+    s.marker = L.circleMarker([s.lat, s.lon], { radius: 3.5, weight: 0, fillOpacity: .8 })
       .on("click", () => select(s)).addTo(map);
   });
   render();
@@ -99,7 +112,7 @@ function score(s, ws) {
 
 function render() {
   const mw = +$("mw").value || 0;
-  const need = mw * PUE / AVAILABLE_SHARE; // MVA of connected rating required
+  const need = mw * PUE / AVAILABLE_SHARE; // MVA required at the landing bus
   let ws = WEIGHTS.map(w => +$("w_" + w.key).value);
   const tot = ws.reduce((a, b) => a + b, 0) || 1;
   ws = ws.map(v => v / tot);
@@ -107,53 +120,69 @@ function render() {
 
   let feasible = 0;
   sites.forEach(s => {
-    s.ok = s.p.headroom_mva >= need;
+    s.ok = s.p.landing_headroom_mva >= need;
     s.score = s.ok ? score(s, ws) : 0;
     feasible += s.ok;
     s.marker.setStyle(s.ok
-      ? { fillColor: color(s.score), fillOpacity: .85, radius: 4.5 }
-      : { fillColor: "#3a3f4a", fillOpacity: .25, radius: 2.5 });
+      ? { fillColor: color(s.score), fillOpacity: .85, radius: 4 }
+      : { fillColor: "#2e3d52", fillOpacity: .25, radius: 2 });
   });
 
-  $("counts").innerHTML = `<b>${feasible.toLocaleString()}</b> of ${sites.length.toLocaleString()} grid nodes can host
-    <b>${mw} MW</b> (needs ≥ ${Math.round(need).toLocaleString()} MVA connected @ ${AVAILABLE_SHARE * 100}% available, PUE ${PUE})`;
+  $("counts").innerHTML = `<b>${feasible.toLocaleString()}</b> of ${sites.length.toLocaleString()} seafloor cells
+    (20–120 m deep, ≤150 km offshore) can host <b>${mw} MW</b>
+    (landing bus needs ≥ ${Math.round(need).toLocaleString()} MVA @ ${AVAILABLE_SHARE * 100}% available, PUE ${PUE})`;
 
   const top = sites.filter(s => s.ok).sort((a, b) => b.score - a.score).slice(0, 10);
   $("ranking").innerHTML = top.map((s, i) => `
-    <li data-id="${s.p.bus_id}">
+    <li>
       <span class="rank">${i + 1}</span>
-      <span style="flex:1">${s.p.country} · ${s.p.voltage} kV ${s.p.nearest_dc ? "· near " + esc(s.p.nearest_dc) : ""}</span>
+      <span style="flex:1">${s.p.landing_country} waters · ${s.p.depth_m} m ${s.p.nearest_cable ? "· near " + esc(s.p.nearest_cable) : ""}</span>
       <span class="score">${(s.score * 100).toFixed(0)}</span>
     </li>`).join("");
   [...$("ranking").children].forEach((li, i) => li.onclick = () => { select(top[i]); map.flyTo([top[i].lat, top[i].lon], 8); });
-  if (activeId) { const s = sites.find(x => x.p.bus_id === activeId); if (s) detail(s); }
+  if (activeId !== null) { const s = sites[activeId]; if (s) detail(s); }
 }
 
-function select(s) { activeId = s.p.bus_id; detail(s); }
+function select(s) { activeId = s.id; detail(s); }
 
 function pct(v) { return Math.round(v * 100); }
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
 function detail(s) {
   const p = s.p, d = $("detail");
+  const mw = +$("mw").value || 0;
   const rows = [
-    ["Grid headroom", `${(+p.headroom_mva).toLocaleString()} MVA · ${p.n_lines} lines`],
-    ["Wholesale price", `€${p.price_eur_mwh}/MWh`, p.s_price_eur_mwh],
+    ["Depth", `${p.depth_m} m`],
+    ["Sea temp (mean / warmest mo.)", `${p.sst_mean_c} / ${p.sst_max_c} °C`, p.s_sst_max_c],
+    ["Nearest fiber cable", `${p.dist_cable_km} km (${esc(p.nearest_cable)})`, p.s_dist_cable_km],
+    ["Grid landing", `${p.dist_grid_km} km · ${p.landing_voltage} kV · ${(+p.landing_headroom_mva).toLocaleString()} MVA`, p.s_dist_grid_km],
+    [`Wholesale price (${p.landing_country})`, `€${p.price_eur_mwh}/MWh`, p.s_price_eur_mwh],
     ["Carbon intensity", `${p.gco2_kwh} gCO₂/kWh · ${p.clean_share_pct}% clean`, p.s_gco2_kwh],
-    ["Nearest data center", `${p.dist_dc_km} km${p.nearest_dc ? " (" + esc(p.nearest_dc) + ")" : ""}`, p.s_dist_dc_km],
-    ["Wind+solar in 50 km", `${(+p.ppa_mw_50km).toLocaleString()} MW · ${p.ppa_plants_50km} plants`, p.s_ppa_mw_50km],
+    ["Offshore wind in 50 km", `${(+p.ppa_mw_50km).toLocaleString()} MW · ${p.ppa_plants_50km} farms`, p.s_ppa_mw_50km],
   ];
   const good = rows.filter(r => r[2] > .7).map(r => r[0].toLowerCase());
   const bad = rows.filter(r => r[2] !== undefined && r[2] < .3).map(r => r[0].toLowerCase());
+
+  // annual impact at the requested IT load
+  const mwhYr = mw * PUE * 8760;
+  const costM = (mwhYr * p.price_eur_mwh / 1e6).toFixed(1);
+  const co2t = Math.round(mwhYr * p.gco2_kwh / 1e6);
+  const saveGwh = (mw * (PUE_LAND - PUE) * 8760 / 1000).toFixed(1);
+
   d.style.display = "block";
-  d.innerHTML = `<h3>${p.country} · ${p.voltage} kV node</h3>
+  d.innerHTML = `<h3>${p.landing_country} waters · ${p.depth_m} m seafloor</h3>
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>
       ${r[2] !== undefined ? `<tr><td colspan=2><div class="bar"><i style="width:${pct(r[2])}%"></i></div></td></tr>` : ""}`).join("")}
     </table>
+    <div class="impact">
+      <div><span>Annual electricity (${mw} MW IT)</span><b>€${costM}M/yr</b></div>
+      <div><span>Annual CO₂ footprint</span><b>${co2t.toLocaleString()} t/yr</b></div>
+      <div><span>Cooling saving vs land (PUE ${PUE} vs ${PUE_LAND})</span><b class="save">${saveGwh} GWh/yr</b></div>
+    </div>
     <div class="verdict">${
       (good.length ? "Strong on " + good.join(", ") : "No standout strengths") +
       (bad.length ? "; weak on " + bad.join(", ") : "") + "."
-    } Scores are percentiles vs. all European grid nodes.</div>`;
+    } Scores are percentiles vs. all European shelf cells.</div>`;
 }
 </script>
 </body>
