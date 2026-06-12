@@ -26,6 +26,18 @@ Two stages, deliberately decoupled:
 | Connectivity | `data/osm_datacenters.json` (1.5k pts) | nearest-neighbor, numpy haversine |
 | PPA potential | `data/osm_power_plants.json` (46k wind/solar) | radius sum (~50 km), parse `plant:output:electricity` |
 
+### Underwater DC mode (offshore wind farms)
+
+Second candidate set: offshore wind farms as positions for *underwater* data
+centers (Project-Natick style — clean power on-site + free seawater cooling).
+`scripts/build_windfarms.py` pulls EMODnet Human Activities' `windfarms` WFS
+layer (GeoJSON) → `web/app/public/windfarms.geojson` (~399 farms, 19 countries,
+~280 GW). Props: `power_mw`, `n_turbines`, `status`, `dist_coast_km`, `year` +
+percentile scores `s_power`/`s_coast`/`s_status`. The frontend "Underwater"
+toggle swaps the dataset; capacity (`power_mw`) is the hard filter, and three of
+the four weight sliders are remapped (PPA→capacity, Connectivity→proximity to
+shore, Carbon→operational readiness).
+
 ## Gotchas (hard-won, do not rediscover)
 
 - **PyPSA CSVs quote geometry with single quotes** — always
@@ -39,6 +51,9 @@ Two stages, deliberately decoupled:
   broadcasting for distance math; scale (~7k × 46k) is fine.
 - Headroom is a **hard filter** (site must fit the requested MW), not a score term.
   Normalize score terms by percentile rank, not min-max (outliers flatten it).
+- EMODnet `windfarms` keys on full country names (`Germany`), not ISO2 — map to
+  ISO2 so the shared country filter works across both modes. `dist_coast` is in
+  metres. Drop `Dismantled` farms and any with no `power_mw`.
 
 ## Conventions
 
