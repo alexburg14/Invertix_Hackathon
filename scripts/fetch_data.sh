@@ -20,5 +20,10 @@ done
   --data-urlencode 'data=[out:json][timeout:120];(node["telecom"="data_center"](35,-11,72,32);way["telecom"="data_center"](35,-11,72,32);relation["telecom"="data_center"](35,-11,72,32););out center tags;' \
   -o data/osm_datacenters.json
 
+# 4. Wind & solar power plants from OSM (PPA-potential layer)
+[ -f data/osm_power_plants.json ] || curl -s -X POST "https://overpass-api.de/api/interpreter" \
+  --data-urlencode 'data=[out:json][timeout:180];(way["power"="plant"]["plant:source"~"wind|solar"](35,-11,72,32);relation["power"="plant"]["plant:source"~"wind|solar"](35,-11,72,32););out center tags;' \
+  -o data/osm_power_plants.json
+
 echo "All data layers present:"
 ls -lh data/pypsa data/ember data/osm_datacenters.json
