@@ -1,0 +1,43 @@
+:root {
+  --bg: #0b1020;
+  --panel: #121a30;
+  --panel-2: #161f3a;
+  --border: #232c4a;
+  --text: #e7ebfb;
+  --text-dim: #8b95b8;
+  --accent: #4f8cff;
+  --accent-2: #34d399;
+  --warn: #f59e0b;
+  --radius: 14px;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  overflow: hidden;
+}
+
+.leaflet-container {
+  background: #0b1020 !important;
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
