@@ -81,7 +81,6 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
 let sites = [], activeId = null;
 
 const $ = id => document.getElementById(id);
-const color = s => s > .8 ? "#3ddc84" : s > .6 ? "#b8d433" : s > .4 ? "#ffb020" : s > .2 ? "#ff7a33" : "#e0455a";
 
 // weight sliders
 $("weights").innerHTML = WEIGHTS.map(w => `
@@ -95,16 +94,78 @@ fetch("cables.json").then(r => r.json()).then(g =>
   L.geoJSON(g, { style: f => ({ color: f.properties.color || "#888", weight: 1, opacity: .45 }) })
     .addTo(map));
 
+// Smoothed score surface: sites form a regular 0.1° grid, so rasterize them
+// into an ImageData (rows spaced in Mercator-y so the overlay aligns), upscale
+// with canvas smoothing, and stretch over the bbox as one image overlay.
+const BBOX = { lat0: 35, lon0: -11, lat1: 72, lon1: 32 };
+const W = 430, H = 600, UP = 3;
+const mercY = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
+const cellKey = (lat, lon) => Math.round(lat * 10) + "_" + Math.round(lon * 10);
+const COLS = [[61,220,132],[184,212,51],[255,176,32],[255,122,51],[224,69,90]];
+const colIdx = s => s > .8 ? 0 : s > .6 ? 1 : s > .4 ? 2 : s > .2 ? 3 : 4;
+
+let cells = new Map(), pixIdx = null, overlay = null;
+const cnv = document.createElement("canvas"); cnv.width = W; cnv.height = H;
+const big = document.createElement("canvas"); big.width = W * UP; big.height = H * UP;
+const hl = L.circleMarker([0, 0], { radius: 7, color: "#fff", weight: 2, fillOpacity: 0 });
+
 fetch("sites.geojson").then(r => r.json()).then(g => {
   sites = g.features.map((f, i) => ({
     id: i, p: f.properties, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
   }));
-  sites.forEach(s => {
-    s.marker = L.circleMarker([s.lat, s.lon], { radius: 3.5, weight: 0, fillOpacity: .8 })
-      .on("click", () => select(s)).addTo(map);
-  });
+  sites.forEach(s => cells.set(cellKey(s.lat, s.lon), s));
+
+  // per-pixel site index, computed once
+  pixIdx = new Int32Array(W * H).fill(-1);
+  const top = mercY(BBOX.lat1), bot = mercY(BBOX.lat0);
+  for (let y = 0; y < H; y++) {
+    const m = top + (bot - top) * (y + .5) / H;
+    const lat = (2 * Math.atan(Math.exp(m)) - Math.PI / 2) * 180 / Math.PI;
+    for (let x = 0; x < W; x++) {
+      const s = cells.get(cellKey(lat, BBOX.lon0 + (x + .5) * 0.1));
+      if (s) pixIdx[y * W + x] = s.id;
+    }
+  }
+  overlay = L.imageOverlay(cnv.toDataURL(),
+    [[BBOX.lat0, BBOX.lon0], [BBOX.lat1, BBOX.lon1]], { interactive: false }).addTo(map);
   render();
 });
+
+// click anywhere -> nearest grid cell (search the 5x5 cell neighborhood)
+map.on("click", e => {
+  let best = null, bd = Infinity;
+  const iy = Math.round(e.latlng.lat * 10), ix = Math.round(e.latlng.lng * 10);
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const s = cells.get((iy + dy) + "_" + (ix + dx));
+    if (!s) continue;
+    const d = (s.lat - e.latlng.lat) ** 2 + (s.lon - e.latlng.lng) ** 2;
+    if (d < bd) { bd = d; best = s; }
+  }
+  if (best) select(best);
+});
+
+function paint() {
+  if (!pixIdx || !overlay) return; // sliders can fire before data loads
+  const ctx = cnv.getContext("2d");
+  const img = ctx.createImageData(W, H);
+  for (let k = 0; k < pixIdx.length; k++) {
+    const i = pixIdx[k];
+    if (i < 0) continue;
+    const s = sites[i], o = k * 4;
+    if (s.ok) {
+      const c = COLS[colIdx(s.score)];
+      img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 190;
+    } else {
+      img.data[o] = 46; img.data[o + 1] = 61; img.data[o + 2] = 82; img.data[o + 3] = 70;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const b = big.getContext("2d");
+  b.imageSmoothingEnabled = true;
+  b.clearRect(0, 0, big.width, big.height);
+  b.drawImage(cnv, 0, 0, big.width, big.height);
+  overlay.setUrl(big.toDataURL());
+}
 
 function score(s, ws) {
   return WEIGHTS.reduce((t, w, i) => t + ws[i] * w.s(s.p), 0);
@@ -123,10 +184,8 @@ function render() {
     s.ok = s.p.landing_headroom_mva >= need;
     s.score = s.ok ? score(s, ws) : 0;
     feasible += s.ok;
-    s.marker.setStyle(s.ok
-      ? { fillColor: color(s.score), fillOpacity: .85, radius: 4 }
-      : { fillColor: "#2e3d52", fillOpacity: .25, radius: 2 });
   });
+  paint();
 
   $("counts").innerHTML = `<b>${feasible.toLocaleString()}</b> of ${sites.length.toLocaleString()} seafloor cells
     (20–120 m deep, ≤150 km offshore) can host <b>${mw} MW</b>
@@ -143,7 +202,11 @@ function render() {
   if (activeId !== null) { const s = sites[activeId]; if (s) detail(s); }
 }
 
-function select(s) { activeId = s.id; detail(s); }
+function select(s) {
+  activeId = s.id;
+  hl.setLatLng([s.lat, s.lon]).addTo(map);
+  detail(s);
+}
 
 function pct(v) { return Math.round(v * 100); }
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -166,7 +229,7 @@ function detail(s) {
   // annual impact at the requested IT load
   const mwhYr = mw * PUE * 8760;
   const costM = (mwhYr * p.price_eur_mwh / 1e6).toFixed(1);
-  const co2t = Math.round(mwhYr * p.gco2_kwh / 1e6);
+  const co2t = Math.round(mwhYr * p.gco2_kwh / 1e3); // MWh * g/kWh = kg
   const saveGwh = (mw * (PUE_LAND - PUE) * 8760 / 1000).toFixed(1);
 
   d.style.display = "block";
