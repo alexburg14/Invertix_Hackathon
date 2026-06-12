@@ -4,10 +4,10 @@ import "leaflet/dist/leaflet.css";
 import "./App.css";
 
 const WEIGHTS = [
-  { key: "s_price_eur_mwh", label: "Price", raw: "price_eur_mwh", unit: "EUR/MWh", fmt: (v) => v.toFixed(0) },
-  { key: "s_carbon", label: "Carbon intensity", raw: "gco2_kwh", unit: "g/kWh", fmt: (v) => v.toFixed(0) },
-  { key: "s_dist_dc_km", label: "Connectivity", raw: "dist_dc_km", unit: "km to nearest DC", fmt: (v) => v.toFixed(0) },
-  { key: "s_ppa_mw_50km", label: "PPA potential", raw: "ppa_mw_50km", unit: "MW renewables / 50km", fmt: (v) => v.toFixed(0) },
+  { key: "s_price_eur_mwh", label: "Price", raw: "price_eur_mwh", unit: "EUR/MWh", fmt: (v) => v.toFixed(0), good: "cheap power", bad: "expensive power" },
+  { key: "s_carbon", label: "Carbon intensity", raw: "gco2_kwh", unit: "g/kWh", fmt: (v) => v.toFixed(0), good: "clean grid", bad: "carbon-heavy grid" },
+  { key: "s_dist_dc_km", label: "Connectivity", raw: "dist_dc_km", unit: "km to nearest DC", fmt: (v) => v.toFixed(0), good: "well connected", bad: "remote / poorly connected" },
+  { key: "s_ppa_mw_50km", label: "PPA potential", raw: "ppa_mw_50km", unit: "MW renewables / 50km", fmt: (v) => v.toFixed(0), good: "strong PPA potential", bad: "little renewables nearby" },
 ];
 
 const TOP_N = 60;
@@ -17,6 +17,9 @@ const TOP_N = 60;
 const AVAILABLE_SHARE = 0.2;
 const PUE = 1.2; // IEA-typical for new builds: grid draw = IT load * PUE
 
+const PRO_THRESHOLD = 0.7;
+const CON_THRESHOLD = 0.3;
+
 function scoreColor(s) {
   // s in [0,1] -> red -> amber -> green
   const hue = 14 + s * 120; // 14 (red) to 134 (green)
@@ -25,6 +28,7 @@ function scoreColor(s) {
 
 export default function App() {
   const [sites, setSites] = useState(null);
+  const [view, setView] = useState("landing");
   const [mw, setMw] = useState(50);
   const [weights, setWeights] = useState({
     s_price_eur_mwh: 1,
@@ -60,7 +64,9 @@ export default function App() {
     const candidates = sites.filter((s) => s.headroom_mva >= need);
     const scored = candidates.map((s) => {
       const score = WEIGHTS.reduce((acc, w) => acc + weights[w.key] * (s[w.key] ?? 0), 0) / totalW;
-      return { ...s, _score: score };
+      const pros = WEIGHTS.filter((w) => (s[w.key] ?? 0) >= PRO_THRESHOLD).map((w) => w.good);
+      const cons = WEIGHTS.filter((w) => (s[w.key] ?? 0) <= CON_THRESHOLD).map((w) => w.bad);
+      return { ...s, _score: score, _pros: pros, _cons: cons };
     });
     scored.sort((a, b) => b._score - a._score);
     return scored.slice(0, TOP_N).map((s, i) => ({ ...s, _rank: i + 1 }));
@@ -68,54 +74,44 @@ export default function App() {
 
   const setWeight = (key, val) => setWeights((w) => ({ ...w, [key]: val }));
 
+  if (view === "landing") {
+    return (
+      <Landing
+        mw={mw}
+        setMw={setMw}
+        weights={weights}
+        setWeight={setWeight}
+        loading={!sites}
+        onSubmit={() => setView("results")}
+      />
+    );
+  }
+
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside className="sidebar results-sidebar">
         <div className="brand">
           <h1>EnerSite</h1>
           <span>data-center siting</span>
         </div>
 
-        <div className="field">
-          <label>Data-center size</label>
-          <div className="mw-input">
-            <input
-              type="number"
-              min="0"
-              value={mw}
-              onChange={(e) => setMw(Number(e.target.value) || 0)}
-            />
-            <span className="unit">MW</span>
-          </div>
-        </div>
-
-        <div className="section-title">Trade-off weights</div>
-        {WEIGHTS.map((w) => (
-          <div className="slider-row" key={w.key}>
-            <div className="top">
-              <span>{w.label}</span>
-              <span className="val">{weights[w.key].toFixed(1)}</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="2"
-              step="0.1"
-              value={weights[w.key]}
-              onChange={(e) => setWeight(w.key, Number(e.target.value))}
-            />
-          </div>
-        ))}
+        <button className="back-btn" onClick={() => setView("landing")}>
+          &larr; Edit preferences
+        </button>
 
         <div className="stats">
-          {sites ? (
-            <>
-              <div><b>{ranked.length}</b> sites can host {mw} MW (needs &ge; {Math.round(need).toLocaleString()} MVA connected @ {AVAILABLE_SHARE * 100}% available, PUE {PUE}) of {sites.length} total.</div>
-              <div style={{ marginTop: 6 }}>Showing top {Math.min(TOP_N, ranked.length)}, ranked by composite score.</div>
-            </>
-          ) : (
-            "Loading site data..."
-          )}
+          <div><b>{ranked.length}</b> sites can host {mw} MW (needs &ge; {Math.round(need).toLocaleString()} MVA connected @ {AVAILABLE_SHARE * 100}% available, PUE {PUE}) of {sites?.length ?? 0} total.</div>
+        </div>
+
+        <div className="ranked-list">
+          {ranked.map((s) => (
+            <SiteCard
+              key={s.bus_id}
+              site={s}
+              active={selected?.bus_id === s.bus_id}
+              onClick={() => setSelected(selected?.bus_id === s.bus_id ? null : s)}
+            />
+          ))}
         </div>
       </aside>
 
@@ -136,7 +132,7 @@ export default function App() {
                 fillOpacity: 0.85,
                 weight: selected?.bus_id === s.bus_id ? 3 : 1,
               }}
-              eventHandlers={{ click: () => setSelected(s) }}
+              eventHandlers={{ click: () => setSelected(selected?.bus_id === s.bus_id ? null : s) }}
             >
               <Tooltip>
                 #{s._rank} &middot; {s.country} &middot; score {s._score.toFixed(2)}
@@ -152,48 +148,104 @@ export default function App() {
             <span>better</span>
           </div>
         </div>
-
-        {selected ? (
-          <ExplainPanel site={selected} onClose={() => setSelected(null)} />
-        ) : (
-          <div className="empty-hint">
-            Click a site on the map to see why it ranks where it does — raw
-            values and how each factor contributes to its score.
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-function ExplainPanel({ site, onClose }) {
+function Landing({ mw, setMw, weights, setWeight, loading, onSubmit }) {
   return (
-    <div className="explain">
-      <button className="close-btn" onClick={onClose}>✕</button>
-      <div className="rank-pill">Rank #{site._rank}</div>
-      <h2>{site.country} &middot; {site.voltage} kV bus</h2>
-      <div className="sub">{site.bus_id}</div>
-      <div className="score-big">
-        {site._score.toFixed(2)} <small>composite score</small>
-      </div>
-      {WEIGHTS.map((w) => (
-        <div className="metric-row" key={w.key}>
-          <span className="name">{w.label}</span>
-          <span className="raw">{w.fmt(site[w.raw])} {w.unit}</span>
-          <div className="bar-bg">
-            <div className="bar-fg" style={{ width: `${(site[w.key] ?? 0) * 100}%`, background: scoreColor(site[w.key] ?? 0) }} />
+    <div className="landing">
+      <div className="landing-card">
+        <div className="brand">
+          <h1>EnerSite</h1>
+          <span>data-center siting</span>
+        </div>
+        <p className="landing-sub">
+          Tell us how big your data center is and what matters most to you —
+          we'll rank candidate grid sites across Europe and explain the
+          trade-offs of each.
+        </p>
+
+        <div className="field">
+          <label>Data-center size</label>
+          <div className="mw-input">
+            <input
+              type="number"
+              min="0"
+              value={mw}
+              onChange={(e) => setMw(Number(e.target.value) || 0)}
+            />
+            <span className="unit">MW</span>
           </div>
         </div>
-      ))}
-      <div className="metric-row">
-        <span className="name">Nearest data center</span>
-        <span className="raw">{site.nearest_dc}</span>
-        <div />
+
+        <div className="section-title">What matters most to you?</div>
+        {WEIGHTS.map((w) => (
+          <div className="slider-row" key={w.key}>
+            <div className="top">
+              <span>{w.label}</span>
+              <span className="val">{weights[w.key].toFixed(1)}</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              value={weights[w.key]}
+              onChange={(e) => setWeight(w.key, Number(e.target.value))}
+            />
+          </div>
+        ))}
+
+        <button className="submit-btn" onClick={onSubmit} disabled={loading}>
+          {loading ? "Loading site data..." : "Find sites →"}
+        </button>
       </div>
-      <div className="metric-row">
-        <span className="name">Headroom (hard filter)</span>
-        <span className="raw">{site.headroom_mva.toFixed(0)} MVA</span>
-        <div />
+    </div>
+  );
+}
+
+function SiteCard({ site, active, onClick }) {
+  return (
+    <div className={"site-card" + (active ? " active" : "")} onClick={onClick}>
+      <div className="site-card-head">
+        <div className="rank-badge">#{site._rank}</div>
+        <div className="site-card-title">
+          <div className="site-card-name">{site.country} &middot; {site.voltage} kV</div>
+          <div className="site-card-sub">{site.nearest_dc ? `near ${site.nearest_dc}` : site.bus_id}</div>
+        </div>
+        <div className="site-card-score" style={{ color: scoreColor(site._score) }}>
+          {Math.round(site._score * 100)}
+        </div>
+      </div>
+
+      {active && (
+        <div className="site-card-details">
+          {WEIGHTS.map((w) => (
+            <div className="metric-row" key={w.key}>
+              <span className="name">{w.label}</span>
+              <span className="raw">{w.fmt(site[w.raw])} {w.unit}</span>
+              <div className="bar-bg">
+                <div className="bar-fg" style={{ width: `${(site[w.key] ?? 0) * 100}%`, background: scoreColor(site[w.key] ?? 0) }} />
+              </div>
+            </div>
+          ))}
+          <div className="metric-row">
+            <span className="name">Grid headroom</span>
+            <span className="raw">{site.headroom_mva.toFixed(0)} MVA</span>
+            <div />
+          </div>
+        </div>
+      )}
+
+      <div className="pros-cons">
+        {site._pros.map((p) => (
+          <span className="tag tag-pro" key={p}>+ {p}</span>
+        ))}
+        {site._cons.map((c) => (
+          <span className="tag tag-con" key={c}>- {c}</span>
+        ))}
       </div>
     </div>
   );
