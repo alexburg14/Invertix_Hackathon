@@ -48,6 +48,7 @@ export default function App() {
     s_ppa_mw_50km: 1,
   });
   const [selected, setSelected] = useState(null);
+  const [country, setCountry] = useState("all");
 
   useEffect(() => {
     fetch("/sites.geojson")
@@ -69,10 +70,17 @@ export default function App() {
 
   const need = (mw * PUE) / AVAILABLE_SHARE; // MVA of connected rating required
 
+  const countries = useMemo(() => {
+    if (!sites) return [];
+    return [...new Set(sites.map((s) => s.country))].sort();
+  }, [sites]);
+
   const ranked = useMemo(() => {
     if (!sites) return [];
     const totalW = WEIGHTS.reduce((s, w) => s + weights[w.key], 0) || 1;
-    const candidates = sites.filter((s) => s.headroom_mva >= need);
+    const candidates = sites.filter(
+      (s) => s.headroom_mva >= need && (country === "all" || s.country === country)
+    );
     const scored = candidates.map((s) => {
       const score = WEIGHTS.reduce((acc, w) => acc + weights[w.key] * (s[w.key] ?? 0), 0) / totalW;
       const pros = WEIGHTS.filter((w) => (s[w.key] ?? 0) >= PRO_THRESHOLD).map((w) => w.good);
@@ -81,7 +89,7 @@ export default function App() {
     });
     scored.sort((a, b) => b._score - a._score);
     return scored.slice(0, TOP_N).map((s, i) => ({ ...s, _rank: i + 1 }));
-  }, [sites, mw, weights, need]);
+  }, [sites, mw, weights, need, country]);
 
   const setWeight = (key, val) => setWeights((w) => ({ ...w, [key]: val }));
 
@@ -113,6 +121,16 @@ export default function App() {
 
         <div className="stats">
           <div><b>{ranked.length}</b> sites can host {mw} MW (needs &ge; {Math.round(need).toLocaleString()} MVA connected @ {AVAILABLE_SHARE * 100}% available, PUE {PUE}) of {sites?.length ?? 0} total.</div>
+        </div>
+
+        <div className="field">
+          <label>Country</label>
+          <select className="country-select" value={country} onChange={(e) => setCountry(e.target.value)}>
+            <option value="all">All countries</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </div>
 
         <div className="ranked-list">
@@ -212,19 +230,17 @@ function Landing({ mw, setMw, weights, setWeight, loading, onSubmit }) {
           <div className="slider-row" key={w.key}>
             <div className="top">
               <span>{w.label}</span>
-              <span className="val">{WEIGHT_LABELS[weights[w.key]]}</span>
             </div>
-            <input
-              type="range"
-              min="0"
-              max="2"
-              step="1"
-              value={weights[w.key]}
-              onChange={(e) => setWeight(w.key, Number(e.target.value))}
-            />
-            <div className="slider-ticks">
-              {WEIGHT_LABELS.map((l) => (
-                <span key={l}>{l}</span>
+            <div className="weight-btns">
+              {WEIGHT_LABELS.map((l, i) => (
+                <button
+                  key={l}
+                  className={"weight-btn" + (weights[w.key] === i ? " active" : "")}
+                  onClick={() => setWeight(w.key, i)}
+                  type="button"
+                >
+                  {l}
+                </button>
               ))}
             </div>
           </div>
