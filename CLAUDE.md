@@ -5,6 +5,11 @@ Goal: a data-center siting decision engine. User enters a DC size in MW → rank
 candidate sites on a map, weight sliders for trade-offs, click-to-explain panel.
 enersite.app is *inspiration only* — this is a from-scratch build.
 
+**Current focus: underwater data centers.** The live frontend ranks *offshore
+wind farms* only (`web/app/public/windfarms.geojson`, see "Underwater DC mode"
+below). The onshore grid pipeline (`build_sites.py` → `sites.geojson`) is kept in
+the repo but no longer wired into the UI.
+
 ## Architecture
 
 Two stages, deliberately decoupled:
