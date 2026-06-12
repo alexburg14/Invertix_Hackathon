@@ -1,0 +1,11 @@
+# Raw data — re-fetched via scripts/fetch_data.sh (large files, public sources)
+data/
+.dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS / editor
+.DS_Store
