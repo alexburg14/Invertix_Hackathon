@@ -20,6 +20,17 @@ const PUE = 1.2; // IEA-typical for new builds: grid draw = IT load * PUE
 const PRO_THRESHOLD = 0.7;
 const CON_THRESHOLD = 0.3;
 
+const WEIGHT_LABELS = ["Low", "Medium", "High"];
+
+function Logo({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="8" fill="var(--accent)" />
+      <path d="M17 5 L8 18 H15 L14 27 L24 13 H17 L17 5 Z" fill="white" />
+    </svg>
+  );
+}
+
 function scoreColor(s) {
   // s in [0,1] -> red -> amber -> green
   const hue = 14 + s * 120; // 14 (red) to 134 (green)
@@ -91,6 +102,7 @@ export default function App() {
     <div className="app">
       <aside className="sidebar results-sidebar">
         <div className="brand">
+          <Logo />
           <h1>EnerSite</h1>
           <span>data-center siting</span>
         </div>
@@ -123,14 +135,28 @@ export default function App() {
           />
           {ranked.map((s) => (
             <CircleMarker
+              key={"halo-" + s.bus_id}
+              center={[s.lat, s.lon]}
+              radius={s._rank === 1 ? 18 : 10}
+              pathOptions={{
+                color: scoreColor(s._score),
+                fillColor: scoreColor(s._score),
+                fillOpacity: 0.12,
+                weight: 0,
+              }}
+              interactive={false}
+            />
+          ))}
+          {ranked.map((s) => (
+            <CircleMarker
               key={s.bus_id}
               center={[s.lat, s.lon]}
               radius={s._rank === 1 ? 10 : 6}
               pathOptions={{
-                color: scoreColor(s._score),
+                color: "#0b1020",
                 fillColor: scoreColor(s._score),
-                fillOpacity: 0.85,
-                weight: selected?.bus_id === s.bus_id ? 3 : 1,
+                fillOpacity: 0.9,
+                weight: selected?.bus_id === s.bus_id ? 3 : 1.5,
               }}
               eventHandlers={{ click: () => setSelected(selected?.bus_id === s.bus_id ? null : s) }}
             >
@@ -158,6 +184,7 @@ function Landing({ mw, setMw, weights, setWeight, loading, onSubmit }) {
     <div className="landing">
       <div className="landing-card">
         <div className="brand">
+          <Logo />
           <h1>EnerSite</h1>
           <span>data-center siting</span>
         </div>
@@ -185,16 +212,21 @@ function Landing({ mw, setMw, weights, setWeight, loading, onSubmit }) {
           <div className="slider-row" key={w.key}>
             <div className="top">
               <span>{w.label}</span>
-              <span className="val">{weights[w.key].toFixed(1)}</span>
+              <span className="val">{WEIGHT_LABELS[weights[w.key]]}</span>
             </div>
             <input
               type="range"
               min="0"
               max="2"
-              step="0.1"
+              step="1"
               value={weights[w.key]}
               onChange={(e) => setWeight(w.key, Number(e.target.value))}
             />
+            <div className="slider-ticks">
+              {WEIGHT_LABELS.map((l) => (
+                <span key={l}>{l}</span>
+              ))}
+            </div>
           </div>
         ))}
 
@@ -224,17 +256,20 @@ function SiteCard({ site, active, onClick }) {
         <div className="site-card-details">
           {WEIGHTS.map((w) => (
             <div className="metric-row" key={w.key}>
-              <span className="name">{w.label}</span>
-              <span className="raw">{w.fmt(site[w.raw])} {w.unit}</span>
+              <div className="metric-top">
+                <span className="name">{w.label}</span>
+                <span className="raw">{w.fmt(site[w.raw])} {w.unit}</span>
+              </div>
               <div className="bar-bg">
                 <div className="bar-fg" style={{ width: `${(site[w.key] ?? 0) * 100}%`, background: scoreColor(site[w.key] ?? 0) }} />
               </div>
             </div>
           ))}
           <div className="metric-row">
-            <span className="name">Grid headroom</span>
-            <span className="raw">{site.headroom_mva.toFixed(0)} MVA</span>
-            <div />
+            <div className="metric-top">
+              <span className="name">Grid headroom</span>
+              <span className="raw">{site.headroom_mva.toFixed(0)} MVA</span>
+            </div>
           </div>
         </div>
       )}

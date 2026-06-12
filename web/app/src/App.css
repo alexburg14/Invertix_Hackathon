@@ -18,8 +18,12 @@
 
 .brand {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand svg {
+  flex-shrink: 0;
 }
 
 .brand h1 {
@@ -143,11 +147,36 @@ input[type="range"]::-moz-range-thumb {
 .map-wrap {
   position: relative;
   height: 100vh;
+  padding: 12px;
+  background: var(--bg);
 }
 
 .map-wrap .map {
   height: 100%;
   width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--border), 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.map-wrap .leaflet-control-attribution {
+  background: rgba(11, 16, 32, 0.7) !important;
+  color: var(--text-dim) !important;
+  border-radius: 6px 0 0 0;
+}
+
+.map-wrap .leaflet-control-attribution a {
+  color: var(--text-dim) !important;
+}
+
+.map-wrap .leaflet-control-zoom a {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.map-wrap .leaflet-control-zoom a:hover {
+  background: var(--panel-2) !important;
 }
 
 .legend {
@@ -180,10 +209,9 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .metric-row {
-  display: grid;
-  grid-template-columns: 1fr auto 60px;
-  align-items: center;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   padding: 7px 0;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
@@ -191,6 +219,13 @@ input[type="range"]::-moz-range-thumb {
 
 .metric-row:last-child {
   border-bottom: none;
+}
+
+.metric-row .metric-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .metric-row .name {
@@ -209,12 +244,21 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 3px;
   background: var(--border);
   overflow: hidden;
+  width: 100%;
 }
 
 .metric-row .bar-fg {
   height: 100%;
   border-radius: 3px;
   background: var(--accent);
+}
+
+.slider-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
 }
 
 /* Landing page */
