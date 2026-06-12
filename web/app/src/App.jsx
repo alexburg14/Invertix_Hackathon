@@ -5,10 +5,9 @@ import "./App.css";
 
 const WEIGHTS = [
   { key: "s_price_eur_mwh", label: "Price", raw: "price_eur_mwh", unit: "EUR/MWh", fmt: (v) => v.toFixed(0) },
-  { key: "s_gco2_kwh", label: "Carbon intensity", raw: "gco2_kwh", unit: "g/kWh", fmt: (v) => v.toFixed(0) },
+  { key: "s_carbon", label: "Carbon intensity", raw: "gco2_kwh", unit: "g/kWh", fmt: (v) => v.toFixed(0) },
   { key: "s_dist_dc_km", label: "Connectivity", raw: "dist_dc_km", unit: "km to nearest DC", fmt: (v) => v.toFixed(0) },
   { key: "s_ppa_mw_50km", label: "PPA potential", raw: "ppa_mw_50km", unit: "MW renewables / 50km", fmt: (v) => v.toFixed(0) },
-  { key: "s_headroom_mva", label: "Grid headroom", raw: "headroom_mva", unit: "MVA spare", fmt: (v) => v.toFixed(0) },
 ];
 
 const TOP_N = 60;
@@ -24,30 +23,41 @@ export default function App() {
   const [mw, setMw] = useState(50);
   const [weights, setWeights] = useState({
     s_price_eur_mwh: 1,
-    s_gco2_kwh: 1,
+    s_carbon: 1,
     s_dist_dc_km: 1,
     s_ppa_mw_50km: 1,
-    s_headroom_mva: 1,
   });
   const [selected, setSelected] = useState(null);
+  const [meta, setMeta] = useState({ pue: 1, available_share: 1 });
 
   useEffect(() => {
     fetch("/sites.geojson")
       .then((r) => r.json())
-      .then((d) => setSites(d.features.map((f) => ({ ...f.properties, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] }))));
+      .then((d) => {
+        setMeta(d.properties);
+        setSites(
+          d.features.map((f) => ({
+            ...f.properties,
+            lat: f.geometry.coordinates[1],
+            lon: f.geometry.coordinates[0],
+          }))
+        );
+      });
   }, []);
+
+  const need = (mw * meta.pue) / meta.available_share; // MVA of connected rating required
 
   const ranked = useMemo(() => {
     if (!sites) return [];
     const totalW = WEIGHTS.reduce((s, w) => s + weights[w.key], 0) || 1;
-    const candidates = sites.filter((s) => s.headroom_mva >= mw);
+    const candidates = sites.filter((s) => s.headroom_mva >= need);
     const scored = candidates.map((s) => {
       const score = WEIGHTS.reduce((acc, w) => acc + weights[w.key] * (s[w.key] ?? 0), 0) / totalW;
       return { ...s, _score: score };
     });
     scored.sort((a, b) => b._score - a._score);
     return scored.slice(0, TOP_N).map((s, i) => ({ ...s, _rank: i + 1 }));
-  }, [sites, mw, weights]);
+  }, [sites, mw, weights, need]);
 
   const setWeight = (key, val) => setWeights((w) => ({ ...w, [key]: val }));
 
@@ -93,7 +103,7 @@ export default function App() {
         <div className="stats">
           {sites ? (
             <>
-              <div><b>{ranked.length}</b> sites meet the {mw} MW headroom requirement (of {sites.length} total).</div>
+              <div><b>{ranked.length}</b> sites can host {mw} MW (needs &ge; {Math.round(need).toLocaleString()} MVA connected @ {meta.available_share * 100}% available, PUE {meta.pue}) of {sites.length} total.</div>
               <div style={{ marginTop: 6 }}>Showing top {Math.min(TOP_N, ranked.length)}, ranked by composite score.</div>
             </>
           ) : (

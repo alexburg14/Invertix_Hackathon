@@ -18,6 +18,11 @@ OUT = ROOT / "web" / "sites.geojson"
 EARTH_KM = 6371.0
 PPA_RADIUS_KM = 50.0
 
+# Of a bus's total connected line rating, assume at most this share is
+# realistically available to a new load (rest carries existing flows).
+AVAILABLE_SHARE = 0.2
+PUE = 1.2  # IEA-typical for new builds: grid draw = IT load * PUE
+
 # Ember keys on ISO3, PyPSA buses on ISO2.
 ISO3_TO_ISO2 = {
     "ALB": "AL", "AUT": "AT", "BEL": "BE", "BGR": "BG", "BIH": "BA",
@@ -139,6 +144,9 @@ def main():
     for c in higher_is_better:
         sites["s_" + c] = sites[c].rank(pct=True).round(3)
 
+    # Combined carbon score: low emissions intensity + high clean-energy share.
+    sites["s_carbon"] = ((sites.s_gco2_kwh + sites.s_clean_share_pct) / 2).round(3)
+
     sites = sites.dropna(subset=["price_eur_mwh", "gco2_kwh"])
 
     # --- 8. Write GeoJSON ---
@@ -155,7 +163,14 @@ def main():
         for r in sites.itertuples()
     ]
     OUT.write_text(json.dumps(
-        {"type": "FeatureCollection", "features": feats}, ensure_ascii=False
+        {
+            "type": "FeatureCollection",
+            # Capacity-sizing model: facility draw = IT load * PUE, and only
+            # this share of a bus's connected line rating is assumed available
+            # to a new load (the rest carries existing flows).
+            "properties": {"pue": PUE, "available_share": AVAILABLE_SHARE},
+            "features": feats,
+        }, ensure_ascii=False
     ))
     print(f"{len(feats)} sites -> {OUT}")
     print(sites.groupby("country").size().sort_values(ascending=False).head(8).to_dict())
