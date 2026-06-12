@@ -1,6 +1,6 @@
 .app {
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: 380px 1fr;
   height: 100vh;
   width: 100vw;
   animation: fadeSlideIn 0.5s ease both;
@@ -375,8 +375,7 @@ input[type="range"]::-moz-range-thumb {
 
 /* Results view */
 .results-sidebar {
-  width: 380px;
-  min-width: 380px;
+  width: 100%;
 }
 
 .back-btn {
