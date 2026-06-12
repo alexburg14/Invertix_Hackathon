@@ -1,4 +1,4 @@
-# EnerSite — Data-Center Siting & Power
+# Data-Center Siting & Power
 
 Invertix Track, Energy × AI Hackathon Munich. Turns the "overlay map" idea into a
 decision engine: enter a data-center size in MW, get ranked candidate sites with
