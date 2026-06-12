@@ -31,17 +31,29 @@ Two stages, deliberately decoupled:
 | Connectivity | `data/osm_datacenters.json` (1.5k pts) | nearest-neighbor, numpy haversine |
 | PPA potential | `data/osm_power_plants.json` (46k wind/solar) | radius sum (~50 km), parse `plant:output:electricity` |
 
-### Underwater DC mode (offshore wind farms)
+### Underwater DC siting (offshore wind farms) — the live app
 
-Second candidate set: offshore wind farms as positions for *underwater* data
-centers (Project-Natick style — clean power on-site + free seawater cooling).
+Candidate set: offshore wind farms as positions for *underwater* data centers
+(Project-Natick style — clean power on-site + free seawater cooling).
 `scripts/build_windfarms.py` pulls EMODnet Human Activities' `windfarms` WFS
-layer (GeoJSON) → `web/app/public/windfarms.geojson` (~399 farms, 19 countries,
-~280 GW). Props: `power_mw`, `n_turbines`, `status`, `dist_coast_km`, `year` +
-percentile scores `s_power`/`s_coast`/`s_status`. The frontend "Underwater"
-toggle swaps the dataset; capacity (`power_mw`) is the hard filter, and three of
-the four weight sliders are remapped (PPA→capacity, Connectivity→proximity to
-shore, Carbon→operational readiness).
+layer (GeoJSON) and per farm samples two marine-risk layers, then writes
+`web/app/public/windfarms.geojson` (~399 farms, 19 countries, ~280 GW):
+
+| Per-farm layer | Source | Sampling |
+|---|---|---|
+| Water depth | EMODnet Bathymetry `depth_sample` REST | 1 GET per farm, parse `avg` (negative m) |
+| Cargo route density | EMODnet HA WMS `routedensity_01` (Cargo) | GetFeatureInfo, `GRAY_INDEX` (WMS 1.3.0 = lat,lon bbox order) |
+
+Both sampled threaded (~16 s total for ~800 calls). Five scored factors
+(1 = best): `s_power` (capacity), `s_coast` (proximity), `s_depth` (suitability
+sweet-spot ~15-60 m, *not* monotonic), `s_ship` (1−percentile of cargo density),
+`s_status` (operational readiness). `power_mw` is the hard filter; all five
+sliders feed the composite. Map has a Leaflet **heat layer** (`leaflet.heat`,
+intensity = composite score) toggle + click-to-zoom (`flyTo`) on cards/markers.
+
+**Water currents: not wired.** No free per-point service — EMODnet HF-radar is
+patchy coastal-only and errored; full coverage needs Copernicus Marine creds.
+Add later via Copernicus `sea_water_velocity` (uo/vo) if a key is available.
 
 ## Gotchas (hard-won, do not rediscover)
 

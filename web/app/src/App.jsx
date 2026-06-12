@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet.heat";
 import "leaflet/dist/leaflet.css";
 import "./App.css";
 
@@ -9,6 +11,8 @@ import "./App.css";
 const FACTORS = [
   { wkey: "s_power", skey: "s_power", label: "Clean power capacity", raw: "power_mw", unit: "MW", fmt: (v) => v.toFixed(0), good: "large clean-power supply", bad: "limited power output" },
   { wkey: "s_coast", skey: "s_coast", label: "Proximity to shore", raw: "dist_coast_km", unit: "km to coast", fmt: (v) => v.toFixed(0), good: "easy cable landing", bad: "far offshore" },
+  { wkey: "s_depth", skey: "s_depth", label: "Water depth fit", raw: "depth_m", unit: "m deep", fmt: (v) => (v == null ? "?" : v.toFixed(0)), good: "ideal deployment depth", bad: "too shallow / too deep" },
+  { wkey: "s_ship", skey: "s_ship", label: "Shipping safety", raw: "cargo_density", unit: "cargo traffic idx", fmt: (v) => (v == null ? "?" : v.toFixed(0)), good: "clear of cargo lanes", bad: "busy cargo route nearby" },
   { wkey: "s_status", skey: "s_status", label: "Operational readiness", raw: "status", unit: "", fmt: (v) => v, good: "operational / near-term", bad: "early-stage" },
 ];
 
@@ -47,6 +51,27 @@ function FlyTo({ selected }) {
   return null;
 }
 
+// Suitability heat map: intensity = composite score of each ranked farm.
+function HeatLayer({ points, show }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!show || points.length === 0) return;
+    const layer = L.heatLayer(
+      points.map((p) => [p.lat, p.lon, Math.max(0.05, p._score)]),
+      {
+        radius: 38,
+        blur: 28,
+        max: 1,
+        minOpacity: 0.35,
+        gradient: { 0.0: "#f87171", 0.5: "#f59e0b", 1.0: "#34d399" },
+      }
+    );
+    layer.addTo(map);
+    return () => layer.remove();
+  }, [points, show, map]);
+  return null;
+}
+
 export default function App() {
   const [farms, setFarms] = useState(null);
   const [view, setView] = useState("landing");
@@ -54,11 +79,14 @@ export default function App() {
   const [weights, setWeights] = useState({
     s_power: 1,
     s_coast: 1,
+    s_depth: 1,
+    s_ship: 1,
     s_status: 1,
   });
   const [selected, setSelected] = useState(null);
   const [country, setCountry] = useState("all");
   const [leaving, setLeaving] = useState(false);
+  const [showHeat, setShowHeat] = useState(true);
 
   useEffect(() => {
     fetch("/windfarms.geojson")
@@ -169,6 +197,7 @@ export default function App() {
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           />
           <FlyTo selected={selected} />
+          <HeatLayer points={ranked} show={showHeat} />
           {ranked.map((s) => (
             <CircleMarker
               key={"halo-" + s._id}
@@ -202,6 +231,14 @@ export default function App() {
             </CircleMarker>
           ))}
         </MapContainer>
+
+        <button
+          className={"heat-toggle" + (showHeat ? " active" : "")}
+          onClick={() => setShowHeat((v) => !v)}
+          type="button"
+        >
+          {showHeat ? "🔥 Heatmap on" : "Heatmap off"}
+        </button>
 
         <div className="legend">
           <div className="bar" />
