@@ -9,52 +9,63 @@
   :root { --bg:#0e141d; --panel:#16202e; --text:#e8e6e3; --muted:#8fa0b5; --accent:#33c6ff; }
   * { box-sizing:border-box; }
   body { margin:0; font:14px/1.45 -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
-  #sidebar { width:340px; min-width:340px; overflow-y:auto; background:var(--panel); padding:16px; display:flex; flex-direction:column; gap:14px; }
+  #sidebar  { width:300px; min-width:300px; overflow-y:auto; background:var(--panel); padding:14px; display:flex; flex-direction:column; gap:10px; border-right:1px solid #1e2d3e; }
+  #rightbar { width:300px; min-width:300px; overflow-y:auto; background:var(--panel); padding:14px; display:flex; flex-direction:column; gap:10px; border-left:1px solid #1e2d3e; }
   #map { flex:1; background:#0a0f16; }
+  .card { background:var(--bg); border:1px solid #1e2d3e; border-radius:10px; padding:12px 14px; }
+  .card-title { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:10px; }
   h1 { font-size:18px; margin:0; } h1 span { color:var(--accent); }
   .sub { color:var(--muted); font-size:12px; margin-top:2px; }
   label { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:2px; }
   input[type=range] { width:100%; accent-color:var(--accent); }
-  .mw input { width:100%; padding:7px 10px; font-size:15px; border-radius:6px; border:1px solid #2e3d52; background:var(--bg); color:var(--text); }
+  .mw-input { width:100%; padding:7px 10px; font-size:15px; border-radius:6px; border:1px solid #2e3d52; background:#0e141d; color:var(--text); }
   .stat { font-size:12px; color:var(--muted); }
   .stat b { color:var(--text); }
   ol { margin:0; padding:0; list-style:none; }
-  ol li { padding:8px 10px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; gap:6px; }
-  ol li:hover, ol li.active { background:#22324a; }
-  ol li .rank { color:var(--accent); font-weight:600; min-width:22px; }
-  ol li .score { color:var(--muted); }
-  #detail { background:var(--bg); border:1px solid #2e3d52; border-radius:8px; padding:12px; font-size:13px; display:none; }
-  #detail h3 { margin:0 0 6px; font-size:14px; }
+  ol li { padding:7px 8px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; gap:6px; font-size:13px; }
+  ol li:hover, ol li.active { background:#1a2740; }
+  ol li .rank { color:var(--accent); font-weight:600; min-width:20px; }
+  ol li .score { color:var(--muted); font-size:12px; }
+  #detail { font-size:13px; display:none; }
+  #detail h3 { margin:0 0 8px; font-size:14px; }
   #detail table { width:100%; border-collapse:collapse; }
-  #detail td { padding:2px 0; } #detail td:last-child { text-align:right; }
-  #detail .verdict { margin-top:8px; color:var(--muted); font-style:italic; }
-  .bar { height:4px; border-radius:2px; background:#2e3d52; margin-top:1px; }
+  #detail td { padding:2px 0; } #detail td:last-child { text-align:right; color:var(--text); }
+  #detail .verdict { margin-top:8px; color:var(--muted); font-style:italic; font-size:12px; }
+  .bar { height:4px; border-radius:2px; background:#2e3d52; margin-top:1px; margin-bottom:3px; }
   .bar i { display:block; height:100%; border-radius:2px; background:var(--accent); }
-  .impact { margin-top:10px; padding-top:8px; border-top:1px solid #2e3d52; }
-  .impact div { display:flex; justify-content:space-between; }
+  .impact { margin-top:10px; padding-top:10px; border-top:1px solid #1e2d3e; display:flex; flex-direction:column; gap:5px; }
+  .impact div { display:flex; justify-content:space-between; font-size:12px; }
   .impact b { color:var(--accent); }
   .save { color:#3ddc84 !important; }
 </style>
 </head>
 <body>
 <div id="sidebar">
-  <div>
+  <div class="card">
     <h1>EnerSite <span>Subsea</span></h1>
     <div class="sub">Where to sink a data center, and how to power it</div>
   </div>
 
-  <div class="mw">
-    <label>Data-center size (MW IT load)</label>
-    <input id="mw" type="number" value="100" min="5" max="1000" step="5">
+  <div class="card">
+    <div class="card-title">Data-center size</div>
+    <input id="mw" class="mw-input" type="number" value="100" min="5" max="1000" step="5">
   </div>
 
-  <div id="weights"></div>
+  <div class="card">
+    <div class="card-title">Siting weights</div>
+    <div id="weights"></div>
+  </div>
 
-  <div class="stat" id="counts"></div>
-  <ol id="ranking"></ol>
-  <div id="detail"></div>
+  <div class="card stat" id="counts"></div>
 </div>
 <div id="map"></div>
+<div id="rightbar">
+  <div class="card">
+    <div class="card-title">Top sites</div>
+    <ol id="ranking"></ol>
+  </div>
+  <div class="card" id="detail"></div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -98,15 +109,25 @@ fetch("cables.json").then(r => r.json()).then(g =>
 // into an ImageData (rows spaced in Mercator-y so the overlay aligns), upscale
 // with canvas smoothing, and stretch over the bbox as one image overlay.
 const BBOX = { lat0: 35, lon0: -11, lat1: 72, lon1: 32 };
-const W = 430, H = 600, UP = 3;
+// W/H = one pixel per 0.1° cell; painted at this resolution, CSS smooths on zoom
+const W = 430, H = 600;
 const mercY = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
 const cellKey = (lat, lon) => Math.round(lat * 10) + "_" + Math.round(lon * 10);
-const COLS = [[61,220,132],[184,212,51],[255,176,32],[255,122,51],[224,69,90]];
-const colIdx = s => s > .8 ? 0 : s > .6 ? 1 : s > .4 ? 2 : s > .2 ? 3 : 4;
+// Continuous score → RGBA (avoids hard color-band edges)
+function scoreColor(score, out, o) {
+  // stops: [threshold, r, g, b]
+  const S = score;
+  let r, g, b;
+  if      (S >= 0.8) { r=61;  g=220; b=132; }
+  else if (S >= 0.6) { const t=(S-.6)/.2; r=61+t*(184-61)|0;  g=220+(t*(212-220))|0; b=132+(t*(51-132))|0; }
+  else if (S >= 0.4) { const t=(S-.4)/.2; r=184+t*(255-184)|0; g=212+(t*(176-212))|0; b=51+(t*(32-51))|0; }
+  else if (S >= 0.2) { const t=(S-.2)/.2; r=255;               g=176+(t*(122-176))|0; b=32+(t*(51-32))|0; }
+  else               { const t=S/.2;       r=224+t*(255-224)|0; g=69+(t*(122-69))|0;  b=90+(t*(51-90))|0; }
+  out[o]=r; out[o+1]=g; out[o+2]=b; out[o+3]=190;
+}
 
 let cells = new Map(), pixIdx = null, overlay = null;
 const cnv = document.createElement("canvas"); cnv.width = W; cnv.height = H;
-const big = document.createElement("canvas"); big.width = W * UP; big.height = H * UP;
 const hl = L.circleMarker([0, 0], { radius: 7, color: "#fff", weight: 2, fillOpacity: 0 });
 
 fetch("sites.geojson").then(r => r.json()).then(g => {
@@ -145,26 +166,22 @@ map.on("click", e => {
 });
 
 function paint() {
-  if (!pixIdx || !overlay) return; // sliders can fire before data loads
+  if (!pixIdx || !overlay) return;
   const ctx = cnv.getContext("2d");
   const img = ctx.createImageData(W, H);
+  const d = img.data;
   for (let k = 0; k < pixIdx.length; k++) {
     const i = pixIdx[k];
     if (i < 0) continue;
     const s = sites[i], o = k * 4;
-    if (s.ok) {
-      const c = COLS[colIdx(s.score)];
-      img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 190;
-    } else {
-      img.data[o] = 46; img.data[o + 1] = 61; img.data[o + 2] = 82; img.data[o + 3] = 70;
-    }
+    if (s.ok) scoreColor(s.score, d, o);
+    else { d[o]=46; d[o+1]=61; d[o+2]=82; d[o+3]=70; }
   }
   ctx.putImageData(img, 0, 0);
-  const b = big.getContext("2d");
-  b.imageSmoothingEnabled = true;
-  b.clearRect(0, 0, big.width, big.height);
-  b.drawImage(cnv, 0, 0, big.width, big.height);
-  overlay.setUrl(big.toDataURL());
+  overlay.setUrl(cnv.toDataURL());
+  // CSS bilinear smoothing — applied once after overlay element exists
+  const el = overlay.getElement();
+  if (el) el.style.imageRendering = "auto";
 }
 
 function score(s, ws) {
@@ -232,7 +249,8 @@ function detail(s) {
   const co2t = Math.round(mwhYr * p.gco2_kwh / 1e3); // MWh * g/kWh = kg
   const saveGwh = (mw * (PUE_LAND - PUE) * 8760 / 1000).toFixed(1);
 
-  d.style.display = "block";
+  d.style.display = "flex";
+  d.style.flexDirection = "column";
   d.innerHTML = `<h3>${p.landing_country} waters · ${p.depth_m} m seafloor</h3>
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>
       ${r[2] !== undefined ? `<tr><td colspan=2><div class="bar"><i style="width:${pct(r[2])}%"></i></div></td></tr>` : ""}`).join("")}
