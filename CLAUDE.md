@@ -44,12 +44,19 @@ layer (GeoJSON) and per farm samples two marine-risk layers, then writes
 | Water depth | EMODnet Bathymetry `depth_sample` REST | 1 GET per farm, parse `avg` (negative m) |
 | Cargo route density | EMODnet HA WMS `routedensity_01` (Cargo) | GetFeatureInfo, `GRAY_INDEX` (WMS 1.3.0 = lat,lon bbox order) |
 
-Both sampled threaded (~16 s total for ~800 calls). Five scored factors
+Both sampled threaded (~16 s total for ~800 calls). Seven scored factors
 (1 = best): `s_power` (capacity), `s_coast` (proximity), `s_depth` (suitability
 sweet-spot ~15-60 m, *not* monotonic), `s_ship` (1−percentile of cargo density),
-`s_status` (operational readiness). `power_mw` is the hard filter; all five
-sliders feed the composite. Map has a Leaflet **heat layer** (`leaflet.heat`,
-intensity = composite score) toggle + click-to-zoom (`flyTo`) on cards/markers.
+`s_status` (operational readiness), `s_negprice` (negative-price hours, from
+Fraunhofer Energy-Charts via `scripts/fetch_negprice.py`), `s_uptime` (capacity
+factor from Renewables.ninja via `scripts/fetch_uptime.py`). `power_mw` is
+the hard filter; all seven sliders feed the composite `Σ wᵢ·sᵢ` computed
+client-side. Click-to-zoom (`flyTo`) on cards/markers.
+
+| Per-farm layer | Source | Sampling |
+|---|---|---|
+| Negative-price hours | Fraunhofer Energy-Charts API | per bidding zone, mapped to ISO2 country |
+| Capacity factor (uptime) | Renewables.ninja API (MERRA-2) | per farm lat/lon, Vestas V164-8000, full year 2019 |
 
 **Water currents: not wired.** No free per-point service — EMODnet HF-radar is
 patchy coastal-only and errored; full coverage needs Copernicus Marine creds.
@@ -71,6 +78,12 @@ Add later via Copernicus `sea_water_velocity` (uo/vo) if a key is available.
 - EMODnet `windfarms` keys on full country names (`Germany`), not ISO2 — map to
   ISO2 so the shared country filter works across both modes. `dist_coast` is in
   metres. Drop `Dismantled` farms and any with no `power_mw`.
+- `build_site_fields.py` probes TLS once and falls back to an unverified SSL
+  context only on a real handshake failure (sandboxes without `certifi` /
+  complete CAs) — an HTTP error status means TLS was fine, so it stays verified.
+- The 10m coastline is coarse in archipelagos (Finnish/Baltic): per-cell coast
+  distance there can be off by a few km vs. the farm's own `dist_coast`. Fine
+  for a heat surface; depth is the dominant within-disc signal anyway.
 
 ## Conventions
 

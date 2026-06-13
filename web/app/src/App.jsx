@@ -1,29 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
-import L from "leaflet";
-import "leaflet.heat";
 import "leaflet/dist/leaflet.css";
 import "./App.css";
-
-// Underwater DCs sit beside offshore wind farms: clean power on-site, free
-// seawater cooling. Each factor: wkey = which weight slider drives it,
-// skey = precomputed score field (1 = best), raw/unit/fmt for the explain panel.
-const FACTORS = [
-  { wkey: "s_power", skey: "s_power", label: "Clean power capacity", raw: "power_mw", unit: "MW", fmt: (v) => v.toFixed(0), good: "large clean-power supply", bad: "limited power output" },
-  { wkey: "s_coast", skey: "s_coast", label: "Proximity to shore", raw: "dist_coast_km", unit: "km to coast", fmt: (v) => v.toFixed(0), good: "easy cable landing", bad: "far offshore" },
-  { wkey: "s_depth", skey: "s_depth", label: "Water depth fit", raw: "depth_m", unit: "m deep", fmt: (v) => (v == null ? "?" : v.toFixed(0)), good: "ideal deployment depth", bad: "too shallow / too deep" },
-  { wkey: "s_ship", skey: "s_ship", label: "Shipping safety", raw: "cargo_density", unit: "cargo traffic idx", fmt: (v) => (v == null ? "?" : v.toFixed(0)), good: "clear of cargo lanes", bad: "busy cargo route nearby" },
-  { wkey: "s_status", skey: "s_status", label: "Operational readiness", raw: "status", unit: "", fmt: (v) => v, good: "operational / near-term", bad: "early-stage" },
-];
+import {
+  FACTORS,
+  createDefaultWeights,
+  factorCons,
+  factorPros,
+  formatFactorValue,
+  rawFactorValue,
+  weightedSuitabilityScore,
+} from "./siteFactors";
 
 const TOP_N = 60;
-
-const OFFSHORE_PUE = 1.1; // underwater DCs cool with seawater (Natick ~1.07)
-
-const PRO_THRESHOLD = 0.7;
-const CON_THRESHOLD = 0.3;
-
-const WEIGHT_LABELS = ["Low", "Medium", "High"];
+const OFFSHORE_PUE = 1.1;
+const WEIGHT_LABELS = ["Off", "Low", "Med", "High"];
 
 function Logo({ size = 28 }) {
   return (
@@ -35,40 +26,15 @@ function Logo({ size = 28 }) {
 }
 
 function scoreColor(s) {
-  // s in [0,1] -> red -> amber -> green
-  const hue = 14 + s * 120; // 14 (red) to 134 (green)
+  const hue = 14 + s * 120;
   return `hsl(${hue}, 75%, 50%)`;
 }
 
-// Pans/zooms the map to the selected wind farm when it changes.
-function FlyTo({ selected }) {
+function FlyTo({ center, zoom }) {
   const map = useMap();
   useEffect(() => {
-    if (selected) {
-      map.flyTo([selected.lat, selected.lon], 9, { duration: 0.8 });
-    }
-  }, [selected, map]);
-  return null;
-}
-
-// Suitability heat map: intensity = composite score of each ranked farm.
-function HeatLayer({ points, show }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!show || points.length === 0) return;
-    const layer = L.heatLayer(
-      points.map((p) => [p.lat, p.lon, Math.max(0.05, p._score)]),
-      {
-        radius: 38,
-        blur: 28,
-        max: 1,
-        minOpacity: 0.35,
-        gradient: { 0.0: "#f87171", 0.5: "#f59e0b", 1.0: "#34d399" },
-      }
-    );
-    layer.addTo(map);
-    return () => layer.remove();
-  }, [points, show, map]);
+    if (center) map.flyTo(center, zoom ?? 9, { duration: 0.8 });
+  }, [center, zoom, map]);
   return null;
 }
 
@@ -76,37 +42,27 @@ export default function App() {
   const [farms, setFarms] = useState(null);
   const [view, setView] = useState("landing");
   const [mw, setMw] = useState(50);
-  const [weights, setWeights] = useState({
-    s_power: 1,
-    s_coast: 1,
-    s_depth: 1,
-    s_ship: 1,
-    s_status: 1,
-  });
+  const [weights, setWeights] = useState(createDefaultWeights);
   const [selected, setSelected] = useState(null);
   const [country, setCountry] = useState("all");
   const [leaving, setLeaving] = useState(false);
-  const [showHeat, setShowHeat] = useState(true);
 
   useEffect(() => {
     fetch("/windfarms.geojson")
       .then((r) => r.json())
       .then((d) =>
         setFarms(
-          d.features.map((f) => {
-            const p = f.properties;
-            return {
-              ...p,
-              _id: `wf_${f.geometry.coordinates[0]}_${f.geometry.coordinates[1]}`,
-              lat: f.geometry.coordinates[1],
-              lon: f.geometry.coordinates[0],
-            };
-          })
+          d.features.map((f, i) => ({
+            ...f.properties,
+            _idx: i,
+            lat: f.geometry.coordinates[1],
+            lon: f.geometry.coordinates[0],
+          }))
         )
       );
   }, []);
 
-  const needPower = mw * OFFSHORE_PUE; // farm capacity (MW) the DC must fit within
+  const needPower = mw * OFFSHORE_PUE;
 
   const countries = useMemo(() => {
     if (!farms) return [];
@@ -115,21 +71,29 @@ export default function App() {
 
   const ranked = useMemo(() => {
     if (!farms) return [];
-    const totalW = FACTORS.reduce((s, f) => s + weights[f.wkey], 0) || 1;
-    const candidates = farms.filter(
-      (s) => s.power_mw >= needPower && (country === "all" || s.country === country)
-    );
-    const scored = candidates.map((s) => {
-      const score = FACTORS.reduce((acc, f) => acc + weights[f.wkey] * (s[f.skey] ?? 0), 0) / totalW;
-      const pros = FACTORS.filter((f) => (s[f.skey] ?? 0) >= PRO_THRESHOLD).map((f) => f.good);
-      const cons = FACTORS.filter((f) => (s[f.skey] ?? 0) <= CON_THRESHOLD).map((f) => f.bad);
-      return { ...s, _score: score, _pros: pros, _cons: cons };
-    });
-    scored.sort((a, b) => b._score - a._score);
-    return scored.slice(0, TOP_N).map((s, i) => ({ ...s, _rank: i + 1 }));
+    const results = [];
+    for (const farm of farms) {
+      if (farm.power_mw < needPower) continue;
+      if (country !== "all" && farm.country !== country) continue;
+      const score = weightedSuitabilityScore(farm, weights);
+      results.push({
+        ...farm,
+        _score: score,
+        _pros: factorPros(farm),
+        _cons: factorCons(farm),
+      });
+    }
+    results.sort((a, b) => b._score - a._score);
+    return results.slice(0, TOP_N).map((p, i) => ({ ...p, _rank: i + 1 }));
   }, [farms, weights, needPower, country]);
 
+  const flyTarget = useMemo(() => {
+    if (!selected) return null;
+    return [selected.lat, selected.lon];
+  }, [selected]);
+
   const setWeight = (key, val) => setWeights((w) => ({ ...w, [key]: val }));
+  const loading = !farms;
 
   if (view === "landing") {
     return (
@@ -138,7 +102,7 @@ export default function App() {
         setMw={setMw}
         weights={weights}
         setWeight={setWeight}
-        loading={!farms}
+        loading={loading}
         leaving={leaving}
         onSubmit={() => {
           setLeaving(true);
@@ -162,7 +126,7 @@ export default function App() {
         </button>
 
         <div className="stats">
-          <div><b>{ranked.length}</b> offshore wind farms can power a {mw} MW underwater data center (needs &ge; {Math.round(needPower)} MW capacity, PUE {OFFSHORE_PUE}) of {farms?.length ?? 0} total.</div>
+          <div><b>{ranked.length}</b> offshore wind farms can host a {mw} MW underwater data center (needs &ge; {Math.round(needPower)} MW farm, PUE {OFFSHORE_PUE}).</div>
         </div>
 
         <div className="field">
@@ -178,14 +142,14 @@ export default function App() {
         <div className="ranked-list">
           {ranked.map((s) => (
             <SiteCard
-              key={s._id}
+              key={s._idx}
               site={s}
-              active={selected?._id === s._id}
-              onClick={() => setSelected(selected?._id === s._id ? null : s)}
+              active={selected?._idx === s._idx}
+              onClick={() => setSelected(selected?._idx === s._idx ? null : s)}
             />
           ))}
           {ranked.length === 0 && (
-            <div className="empty-hint">No wind farms match — lower the MW or change the country filter.</div>
+            <div className="empty-hint">No farms match — lower the MW requirement or change the country filter.</div>
           )}
         </div>
       </aside>
@@ -196,34 +160,19 @@ export default function App() {
             attribution='&copy; OpenStreetMap &copy; CARTO'
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           />
-          <FlyTo selected={selected} />
-          <HeatLayer points={ranked} show={showHeat} />
+          <FlyTo center={flyTarget} />
           {ranked.map((s) => (
             <CircleMarker
-              key={"halo-" + s._id}
+              key={s._idx}
               center={[s.lat, s.lon]}
-              radius={s._rank === 1 ? 18 : 10}
-              pathOptions={{
-                color: scoreColor(s._score),
-                fillColor: scoreColor(s._score),
-                fillOpacity: 0.12,
-                weight: 0,
-              }}
-              interactive={false}
-            />
-          ))}
-          {ranked.map((s) => (
-            <CircleMarker
-              key={s._id}
-              center={[s.lat, s.lon]}
-              radius={s._rank === 1 ? 10 : 6}
+              radius={s._rank === 1 ? 9 : 5}
               pathOptions={{
                 color: "#22d3ee",
                 fillColor: scoreColor(s._score),
                 fillOpacity: 0.9,
-                weight: selected?._id === s._id ? 3 : 2,
+                weight: selected?._idx === s._idx ? 3 : 1.5,
               }}
-              eventHandlers={{ click: () => setSelected(selected?._id === s._id ? null : s) }}
+              eventHandlers={{ click: () => setSelected(selected?._idx === s._idx ? null : s) }}
             >
               <Tooltip>
                 #{s._rank} &middot; {s.name} &middot; score {s._score.toFixed(2)}
@@ -232,15 +181,8 @@ export default function App() {
           ))}
         </MapContainer>
 
-        <button
-          className={"heat-toggle" + (showHeat ? " active" : "")}
-          onClick={() => setShowHeat((v) => !v)}
-          type="button"
-        >
-          {showHeat ? "🔥 Heatmap on" : "Heatmap off"}
-        </button>
-
         <div className="legend">
+          <div className="legend-title">Wind farm suitability</div>
           <div className="bar" />
           <div className="labels">
             <span>worse</span>
@@ -262,9 +204,9 @@ function Landing({ mw, setMw, weights, setWeight, loading, leaving, onSubmit }) 
           <span>underwater DC siting</span>
         </div>
         <p className="landing-sub">
-          Place an underwater data center beside Europe's offshore wind farms —
+          Find the best offshore wind farm to co-locate an underwater data center —
           clean power on-site, free seawater cooling. Tell us your size and what
-          matters most, and we'll rank the best wind farms with their trade-offs.
+          matters most; we'll rank every farm in Europe.
         </p>
 
         <div className="field">
@@ -290,8 +232,8 @@ function Landing({ mw, setMw, weights, setWeight, loading, leaving, onSubmit }) 
               {WEIGHT_LABELS.map((l, i) => (
                 <button
                   key={l}
-                  className={"weight-btn" + (weights[f.wkey] === i ? " active" : "")}
-                  onClick={() => setWeight(f.wkey, i)}
+                  className={"weight-btn" + (weights[f.skey] === i ? " active" : "")}
+                  onClick={() => setWeight(f.skey, i)}
                   type="button"
                 >
                   {l}
@@ -302,7 +244,7 @@ function Landing({ mw, setMw, weights, setWeight, loading, leaving, onSubmit }) 
         ))}
 
         <button className="submit-btn" onClick={onSubmit} disabled={loading}>
-          {loading ? "Loading wind farm data..." : "Find sites →"}
+          {loading ? "Loading wind farm data..." : "Find best sites →"}
         </button>
       </div>
     </div>
@@ -316,7 +258,7 @@ function SiteCard({ site, active, onClick }) {
         <div className="rank-badge">#{site._rank}</div>
         <div className="site-card-title">
           <div className="site-card-name">{site.name}</div>
-          <div className="site-card-sub">{site.country} &middot; {site.status} &middot; {site.n_turbines || "?"} turbines</div>
+          <div className="site-card-sub">{site.country} &middot; {site.power_mw?.toFixed(0)} MW &middot; {site.status}</div>
         </div>
         <div className="site-card-score" style={{ color: scoreColor(site._score) }}>
           {Math.round(site._score * 100)}
@@ -329,19 +271,15 @@ function SiteCard({ site, active, onClick }) {
             <div className="metric-row" key={f.skey}>
               <div className="metric-top">
                 <span className="name">{f.label}</span>
-                <span className="raw">{f.fmt(site[f.raw])} {f.unit}</span>
+                <span className="raw">
+                  {formatFactorValue(rawFactorValue(site, f), f.format)} {f.unit}
+                </span>
               </div>
               <div className="bar-bg">
                 <div className="bar-fg" style={{ width: `${(site[f.skey] ?? 0) * 100}%`, background: scoreColor(site[f.skey] ?? 0) }} />
               </div>
             </div>
           ))}
-          <div className="metric-row">
-            <div className="metric-top">
-              <span className="name">Farm capacity</span>
-              <span className="raw">{site.power_mw.toFixed(0)} MW &middot; {site.year || "—"}</span>
-            </div>
-          </div>
         </div>
       )}
 

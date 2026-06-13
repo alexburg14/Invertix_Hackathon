@@ -196,32 +196,6 @@ input[type="range"]::-moz-range-thumb {
   background: var(--panel-2) !important;
 }
 
-.heat-toggle {
-  position: absolute;
-  top: 24px;
-  right: 24px;
-  z-index: 500;
-  background: rgba(18, 26, 48, 0.9);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  border-radius: 999px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-  transition: all 0.15s ease;
-}
-
-.heat-toggle:hover {
-  color: var(--text);
-}
-
-.heat-toggle.active {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
 .legend {
   position: absolute;
   bottom: 16px;
@@ -233,6 +207,13 @@ input[type="range"]::-moz-range-thumb {
   font-size: 12px;
   z-index: 500;
   backdrop-filter: blur(6px);
+}
+
+.legend-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
 }
 
 .legend .bar {
