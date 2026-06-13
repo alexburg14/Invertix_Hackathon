@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>EnerSite Subsea — Underwater Data-Center Siting</title>
+<title>DeepSite — Underwater Data-Center Siting</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -42,17 +42,12 @@
 <body>
 <div id="sidebar">
   <div class="card">
-    <h1>EnerSite <span>Subsea</span></h1>
+    <h1>Deep<span>Site</span></h1>
     <div class="sub">Where to sink a data center, and how to power it</div>
   </div>
 
   <div class="card">
-    <div class="card-title">Data-center size</div>
-    <input id="mw" class="mw-input" type="number" value="100" min="5" max="1000" step="5">
-  </div>
-
-  <div class="card">
-    <div class="card-title">Siting weights</div>
+    <div class="card-title">What matters most to you?</div>
     <div id="weights"></div>
   </div>
 
@@ -69,20 +64,20 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// Subsea pods get passive seawater cooling: Microsoft Natick measured PUE 1.07
-// (vs ~1.2 for a good land build). Power lands at the nearest onshore grid bus;
-// of that bus's connected line rating, assume at most this share is available.
-const AVAILABLE_SHARE = 0.2;
-const PUE = 1.07;
-const PUE_LAND = 1.2;
-
+// Ten siting factors for an offshore-wind-paired subsea pod. Each carries its
+// precomputed percentile score (s_*, 1 = best) plus the raw field/unit/format
+// and a plain-language pro/con for the explain panel.
 const WEIGHTS = [
-  { key: "cool",    label: "Cooling (cold water)", w: 0.20, s: p => p.s_sst_max_c },
-  { key: "cost",    label: "Cheap power",          w: 0.20, s: p => p.s_price_eur_mwh },
-  { key: "carbon",  label: "Clean power",          w: 0.15, s: p => (p.s_gco2_kwh + p.s_clean_share_pct) / 2 },
-  { key: "fiber",   label: "Fiber (subsea cable)", w: 0.15, s: p => p.s_dist_cable_km },
-  { key: "grid",    label: "Grid proximity",       w: 0.10, s: p => p.s_dist_grid_km },
-  { key: "wind",    label: "Offshore wind PPA",    w: 0.20, s: p => p.s_ppa_mw_50km },
+  { key: "capacity", label: "Wind-farm capacity",    w: .5, s: p => p.s_capacity, raw: ["wf_power_mw"],      unit: "MW",  fmt: 0,   good: "large clean-power supply",  bad: "small wind farm" },
+  { key: "bottemp",  label: "Bottom-water temp",     w: .5, s: p => p.s_bottemp,  raw: ["bot_temp_c"],        unit: "°C",  fmt: 1,   good: "cold seabed, free cooling", bad: "warm seabed, cooling load" },
+  { key: "windpark", label: "Distance to wind farm", w: .5, s: p => p.s_windpark, raw: ["dist_windpark_km"],  unit: "km",  fmt: 0,   good: "clustered, redundant power", bad: "isolated farm" },
+  { key: "shore",    label: "Distance to shore",     w: .5, s: p => p.s_shore,    raw: ["dist_shore_km"],     unit: "km",  fmt: 0,   good: "close to cable landing",    bad: "far from shore" },
+  { key: "depth",    label: "Depth",                 w: .5, s: p => p.s_depth,    raw: ["depth_m"],           unit: "m",   fmt: 0,   good: "ideal deployment depth",    bad: "too shallow / too deep" },
+  { key: "negprice", label: "Negative-price hours",  w: .5, s: p => p.s_negprice, raw: ["negprice_pct"],      unit: "%",   fmt: 1,   good: "frequent free surplus power", bad: "rarely negative prices" },
+  { key: "wind",     label: "Wind speed",            w: .5, s: p => p.s_wind,     raw: ["wind_ms"],           unit: "m/s", fmt: 1,   good: "strong, steady wind",       bad: "weak wind resource" },
+  { key: "current",  label: "Sea current",           w: .5, s: p => p.s_current,  raw: ["current_ms"],        unit: "m/s", fmt: 2,   good: "ideal flow for cooling",    bad: "too calm or too strong" },
+  { key: "slope",    label: "Seabed slope",          w: .5, s: p => p.s_slope,    raw: ["slope_deg"],         unit: "°",   fmt: 1,   good: "flat, stable seabed",       bad: "steep seabed" },
+  { key: "mpa",      label: "Protected area",        w: .5, s: p => p.s_mpa,      raw: ["mpa_status"],        unit: "",    fmt: "t", good: "outside protected area",    bad: "inside protected area" },
 ];
 
 const map = L.map("map", { preferCanvas: true }).setView([56, 5], 6);
@@ -98,7 +93,6 @@ $("weights").innerHTML = WEIGHTS.map(w => `
   <label>${w.label}<span id="wv_${w.key}"></span></label>
   <input type="range" id="w_${w.key}" min="0" max="100" value="${w.w * 100}">`).join("");
 WEIGHTS.forEach(w => $("w_" + w.key).oninput = render);
-$("mw").oninput = render;
 
 // submarine fiber cables as a faint overlay (TeleGeography, Europe-cropped)
 fetch("cables.json").then(r => r.json()).then(g =>
@@ -109,10 +103,11 @@ fetch("cables.json").then(r => r.json()).then(g =>
 // into an ImageData (rows spaced in Mercator-y so the overlay aligns), upscale
 // with canvas smoothing, and stretch over the bbox as one image overlay.
 const BBOX = { lat0: 35, lon0: -11, lat1: 72, lon1: 32 };
-// W/H = one pixel per 0.1° cell; painted at this resolution, CSS smooths on zoom
-const W = 430, H = 600;
+// W/H ≈ one pixel per 0.05° cell; painted at this resolution, CSS smooths on zoom
+const STEP = 0.05;
+const W = 860, H = 1080;
 const mercY = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
-const cellKey = (lat, lon) => Math.round(lat * 10) + "_" + Math.round(lon * 10);
+const cellKey = (lat, lon) => Math.round(lat / STEP) + "_" + Math.round(lon / STEP);
 // Continuous score → RGBA (avoids hard color-band edges)
 function scoreColor(score, out, o) {
   // stops: [threshold, r, g, b]
@@ -130,7 +125,7 @@ let cells = new Map(), pixIdx = null, overlay = null;
 const cnv = document.createElement("canvas"); cnv.width = W; cnv.height = H;
 const hl = L.circleMarker([0, 0], { radius: 7, color: "#fff", weight: 2, fillOpacity: 0 });
 
-fetch("sites.geojson").then(r => r.json()).then(g => {
+fetch("seafloor.geojson").then(r => r.json()).then(g => {
   sites = g.features.map((f, i) => ({
     id: i, p: f.properties, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
   }));
@@ -143,7 +138,7 @@ fetch("sites.geojson").then(r => r.json()).then(g => {
     const m = top + (bot - top) * (y + .5) / H;
     const lat = (2 * Math.atan(Math.exp(m)) - Math.PI / 2) * 180 / Math.PI;
     for (let x = 0; x < W; x++) {
-      const s = cells.get(cellKey(lat, BBOX.lon0 + (x + .5) * 0.1));
+      const s = cells.get(cellKey(lat, BBOX.lon0 + (x + .5) * (BBOX.lon1 - BBOX.lon0) / W));
       if (s) pixIdx[y * W + x] = s.id;
     }
   }
@@ -155,7 +150,7 @@ fetch("sites.geojson").then(r => r.json()).then(g => {
 // click anywhere -> nearest grid cell (search the 5x5 cell neighborhood)
 map.on("click", e => {
   let best = null, bd = Infinity;
-  const iy = Math.round(e.latlng.lat * 10), ix = Math.round(e.latlng.lng * 10);
+  const iy = Math.round(e.latlng.lat / STEP), ix = Math.round(e.latlng.lng / STEP);
   for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
     const s = cells.get((iy + dy) + "_" + (ix + dx));
     if (!s) continue;
@@ -189,30 +184,22 @@ function score(s, ws) {
 }
 
 function render() {
-  const mw = +$("mw").value || 0;
-  const need = mw * PUE / AVAILABLE_SHARE; // MVA required at the landing bus
   let ws = WEIGHTS.map(w => +$("w_" + w.key).value);
   const tot = ws.reduce((a, b) => a + b, 0) || 1;
   ws = ws.map(v => v / tot);
   WEIGHTS.forEach((w, i) => $("wv_" + w.key).textContent = Math.round(ws[i] * 100) + "%");
 
-  let feasible = 0;
-  sites.forEach(s => {
-    s.ok = s.p.landing_headroom_mva >= need;
-    s.score = s.ok ? score(s, ws) : 0;
-    feasible += s.ok;
-  });
+  sites.forEach(s => { s.ok = true; s.score = score(s, ws); });
   paint();
 
-  $("counts").innerHTML = `<b>${feasible.toLocaleString()}</b> of ${sites.length.toLocaleString()} seafloor cells
-    (20–120 m deep, ≤150 km offshore) can host <b>${mw} MW</b>
-    (landing bus needs ≥ ${Math.round(need).toLocaleString()} MVA @ ${AVAILABLE_SHARE * 100}% available, PUE ${PUE})`;
+  $("counts").innerHTML = `<b>${sites.length.toLocaleString()}</b> seafloor cells scored
+    across the European shelf (0.05° grid), ranked by your weighting.`;
 
-  const top = sites.filter(s => s.ok).sort((a, b) => b.score - a.score).slice(0, 10);
+  const top = sites.slice().sort((a, b) => b.score - a.score).slice(0, 10);
   $("ranking").innerHTML = top.map((s, i) => `
     <li>
       <span class="rank">${i + 1}</span>
-      <span style="flex:1">${s.p.landing_country} waters · ${s.p.depth_m} m ${s.p.nearest_cable ? "· near " + esc(s.p.nearest_cable) : ""}</span>
+      <span style="flex:1">${s.p.depth_m} m · ${s.p.wf_name ? esc(s.p.wf_name) : esc(s.p.mpa_status || "open water")}</span>
       <span class="score">${(s.score * 100).toFixed(0)}</span>
     </li>`).join("");
   [...$("ranking").children].forEach((li, i) => li.onclick = () => { select(top[i]); map.flyTo([top[i].lat, top[i].lon], 8); });
@@ -228,38 +215,30 @@ function select(s) {
 function pct(v) { return Math.round(v * 100); }
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+function fmtRaw(v, f) {
+  if (v === undefined || v === null) return "?";
+  if (f === "t") return esc(String(v));
+  if (typeof v !== "number") return esc(String(v));
+  return v.toFixed(f);
+}
+
 function detail(s) {
   const p = s.p, d = $("detail");
-  const mw = +$("mw").value || 0;
-  const rows = [
-    ["Depth", `${p.depth_m} m`],
-    ["Sea temp (mean / warmest mo.)", `${p.sst_mean_c} / ${p.sst_max_c} °C`, p.s_sst_max_c],
-    ["Nearest fiber cable", `${p.dist_cable_km} km (${esc(p.nearest_cable)})`, p.s_dist_cable_km],
-    ["Grid landing", `${p.dist_grid_km} km · ${p.landing_voltage} kV · ${(+p.landing_headroom_mva).toLocaleString()} MVA`, p.s_dist_grid_km],
-    [`Wholesale price (${p.landing_country})`, `€${p.price_eur_mwh}/MWh`, p.s_price_eur_mwh],
-    ["Carbon intensity", `${p.gco2_kwh} gCO₂/kWh · ${p.clean_share_pct}% clean`, p.s_gco2_kwh],
-    ["Offshore wind in 50 km", `${(+p.ppa_mw_50km).toLocaleString()} MW · ${p.ppa_plants_50km} farms`, p.s_ppa_mw_50km],
-  ];
-  const good = rows.filter(r => r[2] > .7).map(r => r[0].toLowerCase());
-  const bad = rows.filter(r => r[2] !== undefined && r[2] < .3).map(r => r[0].toLowerCase());
-
-  // annual impact at the requested IT load
-  const mwhYr = mw * PUE * 8760;
-  const costM = (mwhYr * p.price_eur_mwh / 1e6).toFixed(1);
-  const co2t = Math.round(mwhYr * p.gco2_kwh / 1e3); // MWh * g/kWh = kg
-  const saveGwh = (mw * (PUE_LAND - PUE) * 8760 / 1000).toFixed(1);
+  // one row per factor: label, raw value + unit, percentile score
+  const rows = WEIGHTS.map(w => {
+    const rv = w.raw.map(k => p[k]).find(v => v !== undefined && v !== null);
+    return [w.label, fmtRaw(rv, w.fmt) + (w.unit ? " " + w.unit : ""), w.s(p)];
+  });
+  const good = WEIGHTS.filter(w => w.s(p) >= .7).map(w => w.good);
+  const bad = WEIGHTS.filter(w => w.s(p) <= .3).map(w => w.bad);
+  const place = p.wf_name ? esc(p.wf_name) : esc(p.mpa_status || "open water");
 
   d.style.display = "flex";
   d.style.flexDirection = "column";
-  d.innerHTML = `<h3>${p.landing_country} waters · ${p.depth_m} m seafloor</h3>
+  d.innerHTML = `<h3>${p.depth_m} m seafloor · ${place}</h3>
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>
       ${r[2] !== undefined ? `<tr><td colspan=2><div class="bar"><i style="width:${pct(r[2])}%"></i></div></td></tr>` : ""}`).join("")}
     </table>
-    <div class="impact">
-      <div><span>Annual electricity (${mw} MW IT)</span><b>€${costM}M/yr</b></div>
-      <div><span>Annual CO₂ footprint</span><b>${co2t.toLocaleString()} t/yr</b></div>
-      <div><span>Cooling saving vs land (PUE ${PUE} vs ${PUE_LAND})</span><b class="save">${saveGwh} GWh/yr</b></div>
-    </div>
     <div class="verdict">${
       (good.length ? "Strong on " + good.join(", ") : "No standout strengths") +
       (bad.length ? "; weak on " + bad.join(", ") : "") + "."
