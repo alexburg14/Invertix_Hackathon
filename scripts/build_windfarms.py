@@ -376,7 +376,10 @@ def score(df):
     df["s_depth"] = df.depth_m.map(depth_suitability).round(3)
 
     # Bottom temp: colder = better cooling (rank inverted)
-    bt = df.bot_temp_c.fillna(df.bot_temp_c.median())
+    # Store filled value for output so UI never shows "?"
+    bt_median = df.bot_temp_c.median()
+    bt = df.bot_temp_c.fillna(bt_median)
+    df["bot_temp_c_filled"] = bt.round(1)
     df["s_bottemp"] = (1 - bt.rank(pct=True)).round(3)
 
     # Wind speed: higher = more production
@@ -455,7 +458,7 @@ def main():
     # --- Write output ---
     keep = [
         "name", "country", "status", "year", "power_mw", "n_turbines",
-        "dist_shore_km", "dist_coast_km", "depth_m", "bot_temp_c", "wind_ms", "current_ms",
+        "dist_shore_km", "dist_coast_km", "depth_m", "bot_temp_c_filled", "wind_ms", "current_ms",
         "slope_deg", "mpa_status", "negprice_pct", "dist_windpark_km",
         "s_capacity", "s_shore", "s_depth", "s_bottemp", "s_wind",
         "s_current", "s_slope", "s_mpa", "s_negprice", "s_windpark",

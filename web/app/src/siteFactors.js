@@ -11,7 +11,7 @@ export const FACTORS = [
   {
     skey: "s_bottemp",
     label: "Bottom-water temp",
-    rawKeys: ["bot_temp_c"],
+    rawKeys: ["bot_temp_c_filled", "bot_temp_c"],
     unit: "deg C",
     format: "oneDecimal",
     good: "cold seabed, free cooling",
