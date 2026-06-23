@@ -1,4 +1,4 @@
-# EnerSite Subsea — Underwater Data-Center Siting & Power
+# DeepSite — Underwater Data-Center Siting & Power
 
 Invertix Track, Energy × AI Hackathon Munich. A siting decision engine for
 **subsea data centers** (Microsoft-Natick-style): enter a DC size in MW, get
